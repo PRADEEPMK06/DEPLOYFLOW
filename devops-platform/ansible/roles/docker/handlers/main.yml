@@ -1,0 +1,19 @@
+---
+# ============================================================================
+# ANSIBLE DOCKER ROLE - HANDLERS
+# ============================================================================
+# Handlers are triggered by tasks when changes occur
+
+---
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted
+
+- name: reload docker
+  systemd:
+    name: docker
+    state: reloaded
+
+# ============================================================================

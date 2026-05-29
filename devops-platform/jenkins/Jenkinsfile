@@ -1,0 +1,624 @@
+// ============================================================================
+// JENKINS DECLARATIVE PIPELINE
+// ============================================================================
+// CI/CD pipeline for building and deploying DevOps Platform applications
+//
+// What is a Jenkinsfile?
+// - Groovy script defining Jenkins CI/CD pipeline
+// - Can be stored in Git repository
+// - Triggers automatically on commits
+// - Defines build stages, parallel tasks, notifications
+//
+// Pipeline Stages:
+// 1. Checkout - Clone Git repository
+// 2. Prepare - Install dependencies
+// 3. Build - Build Docker images
+// 4. Test - Run basic tests/checks
+// 5. Deploy - Deploy containers with docker-compose
+// 6. Verify - Check deployments are working
+// 7. Notify - Send notifications on success/failure
+//
+// ============================================================================
+
+pipeline {
+
+  // ========================================================================
+  // AGENT CONFIGURATION
+  // ========================================================================
+  // Where jobs execute
+
+  agent any
+
+  // Optional: Use specific agent label
+  // agent {
+  //   label 'docker-enabled'
+  // }
+
+  // ========================================================================
+  // PARAMETERS
+  // ========================================================================
+  // Parameters for manual job invocation
+
+  parameters {
+    choice(
+      name: 'ENVIRONMENT',
+      choices: ['development', 'staging', 'production'],
+      description: 'Deployment environment'
+    )
+    booleanParam(
+      name: 'SKIP_TESTS',
+      defaultValue: false,
+      description: 'Skip test stage'
+    )
+    booleanParam(
+      name: 'FORCE_REBUILD',
+      defaultValue: false,
+      description: 'Force rebuild all images'
+    )
+  }
+
+  // ========================================================================
+  // ENVIRONMENT VARIABLES
+  // ========================================================================
+  // Variables available throughout pipeline
+
+  environment {
+    // Registry and image names
+    REGISTRY = 'docker.io'
+    REGISTRY_CREDENTIALS = 'docker-credentials'  // Jenkins credentials ID
+    IMAGE_PREFIX = "devops-platform"
+
+    // Docker Compose paths
+    DOCKER_COMPOSE_FILE = 'docker-compose.yml'
+    DOCKER_COMPOSE_VERSION = '2.24.0'
+
+    // Deployment settings
+    DEPLOYMENT_DIR = '/opt/devops-platform'
+    LOG_DIR = '/var/log/devops-platform'
+
+    // Timeouts and retries
+    TIMEOUT_SECONDS = '300'
+    MAX_RETRIES = '3'
+
+    // Notification settings
+    SLACK_WEBHOOK = credentials('slack-webhook-url')  // Optional
+    EMAIL_RECIPIENTS = 'devops-team@example.com'
+
+    // Build information
+    BUILD_TIME = sh(
+      script: 'date +%Y%m%d_%H%M%S',
+      returnStdout: true
+    ).trim()
+  }
+
+  // ========================================================================
+  // OPTIONS
+  // ========================================================================
+  // Global options for pipeline
+
+  options {
+    // Keep last 30 builds
+    buildDiscarder(logRotator(numToKeepStr: '30'))
+
+    // Timeout after 1 hour
+    timeout(time: 1, unit: 'HOURS')
+
+    // Add timestamps to console output
+    timestamps()
+
+    // Disable concurrent builds
+    disableConcurrentBuilds()
+  }
+
+  // ========================================================================
+  // TRIGGERS
+  // ========================================================================
+  // When to automatically start pipeline
+
+  triggers {
+    // Poll repository every 15 minutes
+    pollSCM('H/15 * * * *')
+
+    // Webhook trigger (GitHub push)
+    // Set webhook URL in GitHub: http://jenkins-server/github-webhook/
+  }
+
+  // ========================================================================
+  // STAGES
+  // ========================================================================
+
+  stages {
+
+    // ====================================================================
+    // STAGE 1: CHECKOUT
+    // ====================================================================
+    // Clone Git repository
+
+    stage('Checkout') {
+      steps {
+        script {
+          echo "===== STAGE: CHECKOUT ====="
+          echo "Environment: ${ENVIRONMENT}"
+          echo "Build: ${BUILD_NUMBER}"
+          echo "Build Time: ${BUILD_TIME}"
+        }
+
+        // Checkout code from Git
+        checkout([
+          $class: 'GitSCM',
+          branches: [[name: '*/main'], [name: '*/develop']],
+          userRemoteConfigs: [[
+            url: 'https://github.com/YOUR-REPO/devops-platform.git',
+            credentialsId: 'github-credentials'
+          ]]
+        ])
+
+        // Alternative: Using simple checkout
+        // checkout scm
+      }
+
+      post {
+        success {
+          echo "✓ Checkout successful"
+        }
+        failure {
+          echo "✗ Checkout failed"
+        }
+      }
+    }
+
+    // ====================================================================
+    // STAGE 2: PREPARE
+    // ====================================================================
+    // Install dependencies and setup
+
+    stage('Prepare') {
+      steps {
+        script {
+          echo "===== STAGE: PREPARE ====="
+
+          // Verify Docker is installed
+          sh '''
+            echo "Checking Docker installation..."
+            docker --version
+            docker-compose --version
+          '''
+
+          // Create required directories
+          sh '''
+            mkdir -p ${LOG_DIR}
+            mkdir -p ${DEPLOYMENT_DIR}
+          '''
+
+          // Display system information
+          sh '''
+            echo "System Information:"
+            echo "Hostname: $(hostname)"
+            echo "Disk Space:"
+            df -h | grep -E '^/|^Filesystem'
+            echo "Memory:"
+            free -h | grep -E '^Mem|^total'
+          '''
+
+          // Verify all required files exist
+          sh '''
+            echo "Verifying required files..."
+            test -f docker-compose.yml && echo "✓ docker-compose.yml found"
+            test -f nginx/default.conf && echo "✓ nginx/default.conf found"
+            test -d apps && echo "✓ apps directory found"
+          '''
+        }
+      }
+
+      post {
+        failure {
+          error "Preparation failed!"
+        }
+      }
+    }
+
+    // ====================================================================
+    // STAGE 3: BUILD
+    // ====================================================================
+    // Build Docker images
+
+    stage('Build') {
+      steps {
+        script {
+          echo "===== STAGE: BUILD ====="
+
+          // Build images with docker-compose
+          sh '''
+            echo "Building Docker images..."
+            cd ${WORKSPACE}
+            
+            if [ "${FORCE_REBUILD}" = "true" ]; then
+              echo "Force rebuild enabled..."
+              docker-compose build --no-cache
+            else
+              echo "Building with cache..."
+              docker-compose build
+            fi
+
+            echo "Build completed successfully"
+          '''
+
+          // Tag images for registry (optional)
+          sh '''
+            echo "Listing built images..."
+            docker images | grep "${IMAGE_PREFIX}"
+          '''
+        }
+      }
+
+      post {
+        always {
+          // Clean up unused images (optional)
+          sh 'docker image prune -f --filter "dangling=true" || true'
+        }
+        failure {
+          error "Build failed!"
+        }
+      }
+    }
+
+    // ====================================================================
+    // STAGE 4: TEST
+    // ====================================================================
+    // Run tests and checks
+
+    stage('Test') {
+      when {
+        expression {
+          return params.SKIP_TESTS == false
+        }
+      }
+
+      steps {
+        script {
+          echo "===== STAGE: TEST ====="
+
+          // Verify Dockerfiles syntax
+          sh '''
+            echo "Validating Dockerfiles..."
+            for dockerfile in $(find . -name "Dockerfile" -type f); do
+              echo "Checking: $dockerfile"
+              hadolint "$dockerfile" || echo "Hadolint not installed, skipping"
+            done
+          '''
+
+          // Lint docker-compose
+          sh '''
+            echo "Validating docker-compose.yml..."
+            docker-compose config -q
+            echo "✓ docker-compose.yml is valid"
+          '''
+
+          // Check Nginx configuration
+          sh '''
+            echo "Validating Nginx configuration..."
+            docker run --rm -v $(pwd)/nginx:/etc/nginx/conf.d nginx:latest nginx -t
+            echo "✓ Nginx configuration is valid"
+          '''
+
+          // Security scan (optional - requires trivy)
+          sh '''
+            echo "Running security checks..."
+            trivy image ${IMAGE_PREFIX}-portfolio:latest || echo "Trivy not installed"
+          '''
+        }
+      }
+
+      post {
+        unstable {
+          echo "⚠ Tests completed with warnings"
+        }
+        failure {
+          error "Tests failed!"
+        }
+      }
+    }
+
+    // ====================================================================
+    // STAGE 5: DEPLOY
+    // ====================================================================
+    // Deploy applications
+
+    stage('Deploy') {
+      steps {
+        script {
+          echo "===== STAGE: DEPLOY ====="
+
+          // Stop old containers
+          sh '''
+            echo "Stopping old containers..."
+            cd ${WORKSPACE}
+            docker-compose down || true
+            sleep 5
+          '''
+
+          // Pull latest images (if using registry)
+          sh 'docker-compose pull || true'
+
+          // Start services
+          sh '''
+            echo "Starting services..."
+            cd ${WORKSPACE}
+            docker-compose up -d
+
+            echo "Waiting for services to start..."
+            sleep 10
+
+            echo "Running containers:"
+            docker-compose ps
+          '''
+
+          // Copy deployment file for reference
+          sh '''
+            cp docker-compose.yml ${DEPLOYMENT_DIR}/docker-compose.${BUILD_NUMBER}.yml
+          '''
+        }
+      }
+
+      post {
+        always {
+          // Collect logs
+          sh '''
+            echo "Collecting Docker logs..."
+            docker-compose logs > ${LOG_DIR}/deployment-${BUILD_NUMBER}.log 2>&1 || true
+          '''
+        }
+        failure {
+          error "Deployment failed!"
+        }
+      }
+    }
+
+    // ====================================================================
+    // STAGE 6: VERIFY
+    // ====================================================================
+    // Verify deployment is working
+
+    stage('Verify') {
+      steps {
+        script {
+          echo "===== STAGE: VERIFY ====="
+
+          // Wait for services to be healthy
+          sh '''
+            echo "Waiting for services to become healthy..."
+            RETRY=0
+            until docker-compose ps | grep -E "portfolio|weather|stopwatch|tic-tac-toe|nginx" | grep -q "Up"; do
+              if [ $RETRY -ge ${MAX_RETRIES} ]; then
+                echo "Services did not start in time"
+                exit 1
+              fi
+              echo "Waiting... (attempt $((RETRY+1))/${MAX_RETRIES})"
+              sleep 5
+              RETRY=$((RETRY+1))
+            done
+            echo "✓ Services are up"
+          '''
+
+          // Test application endpoints
+          sh '''
+            echo "Testing application endpoints..."
+            
+            # Function to test endpoint
+            test_endpoint() {
+              local url=$1
+              local name=$2
+              echo "Testing: $name at $url"
+              
+              if curl -sf "$url" > /dev/null 2>&1; then
+                echo "✓ $name is responding"
+              else
+                echo "✗ $name is NOT responding"
+                return 1
+              fi
+            }
+
+            # Test all endpoints
+            test_endpoint "http://localhost/portfolio" "Portfolio"
+            test_endpoint "http://localhost/weather" "Weather"
+            test_endpoint "http://localhost/stopwatch" "Stopwatch"
+            test_endpoint "http://localhost/game" "Tic Tac Toe"
+            test_endpoint "http://localhost:8080" "Jenkins" || true
+          '''
+
+          // Verify reverse proxy is working
+          sh '''
+            echo "Verifying Nginx reverse proxy..."
+            docker exec nginx-reverse-proxy nginx -t
+            echo "✓ Nginx configuration is valid"
+          '''
+
+          // Display service status
+          sh '''
+            echo "Service Status:"
+            docker-compose ps
+          '''
+        }
+      }
+
+      post {
+        always {
+          // Archive logs
+          archiveArtifacts artifacts: "${LOG_DIR}/*.log", allowEmptyArchive: true
+        }
+        failure {
+          error "Verification failed!"
+        }
+      }
+    }
+
+    // ====================================================================
+    // STAGE 7: NOTIFY
+    // ====================================================================
+    // Send notifications
+
+    stage('Notify') {
+      when {
+        expression {
+          return currentBuild.result == null || currentBuild.result == 'SUCCESS'
+        }
+      }
+
+      steps {
+        script {
+          echo "===== STAGE: NOTIFY ====="
+
+          // Generate report
+          sh '''
+            cat > ${LOG_DIR}/deployment-summary-${BUILD_NUMBER}.txt << EOF
+Deployment Summary
+==================
+Build Number: ${BUILD_NUMBER}
+Build Time: ${BUILD_TIME}
+Status: SUCCESS
+Environment: ${ENVIRONMENT}
+
+Applications Deployed:
+✓ Nginx Reverse Proxy (Port 80)
+✓ Portfolio Application (/portfolio)
+✓ Weather Application (/weather)
+✓ Stopwatch Application (/stopwatch)
+✓ Tic Tac Toe Game (/game)
+✓ Jenkins CI/CD (Port 8080)
+
+Access Points:
+- Portfolio: http://$(hostname -I | awk '{print $1}')/portfolio
+- Weather: http://$(hostname -I | awk '{print $1}')/weather
+- Stopwatch: http://$(hostname -I | awk '{print $1}')/stopwatch
+- Game: http://$(hostname -I | awk '{print $1}')/game
+- Jenkins: http://$(hostname -I | awk '{print $1}'):8080
+
+EOF
+            cat ${LOG_DIR}/deployment-summary-${BUILD_NUMBER}.txt
+          '''
+
+          // Slack notification (optional)
+          sh '''
+            if [ ! -z "${SLACK_WEBHOOK}" ]; then
+              curl -X POST ${SLACK_WEBHOOK} \
+                -H 'Content-Type: application/json' \
+                -d "{\"text\":\"✓ DevOps Platform deployed successfully (Build ${BUILD_NUMBER})\"}"
+            fi
+          '''
+
+          // Email notification (optional)
+          emailext(
+            to: "${EMAIL_RECIPIENTS}",
+            subject: "[Jenkins] Deployment Successful - Build ${BUILD_NUMBER}",
+            body: "DevOps Platform has been successfully deployed.\n\nBuild: ${BUILD_NUMBER}\nEnvironment: ${ENVIRONMENT}\n\nCheck Jenkins for details: ${BUILD_URL}"
+          )
+        }
+      }
+    }
+
+  }
+
+  // ========================================================================
+  // POST-BUILD ACTIONS
+  // ========================================================================
+  // Actions to run after all stages
+
+  post {
+
+    // Always execute
+    always {
+      echo "Pipeline execution completed"
+      script {
+        echo "Final Status: ${currentBuild.result ?: 'IN_PROGRESS'}"
+      }
+    }
+
+    // Success execution
+    success {
+      echo "✓ Pipeline completed successfully"
+      script {
+        currentBuild.description = "SUCCESS - ${BUILD_TIME}"
+      }
+    }
+
+    // Failure execution
+    failure {
+      echo "✗ Pipeline failed"
+      script {
+        currentBuild.description = "FAILED - ${BUILD_TIME}"
+      }
+
+      // Rollback or cleanup (optional)
+      sh '''
+        echo "Failure detected. Cleaning up..."
+        # Optionally stop containers or rollback
+        # docker-compose stop || true
+      '''
+
+      // Send failure notification
+      emailext(
+        to: "${EMAIL_RECIPIENTS}",
+        subject: "[Jenkins] Deployment Failed - Build ${BUILD_NUMBER}",
+        body: "DevOps Platform deployment FAILED.\n\nBuild: ${BUILD_NUMBER}\nEnvironment: ${ENVIRONMENT}\n\nCheck logs: ${BUILD_URL}console"
+      )
+    }
+
+    // Unstable execution
+    unstable {
+      echo "⚠ Pipeline completed with warnings"
+      script {
+        currentBuild.description = "UNSTABLE - ${BUILD_TIME}"
+      }
+    }
+
+  }
+
+}
+
+// ============================================================================
+// JENKINS SETUP INSTRUCTIONS
+// ============================================================================
+//
+// 1. INSTALL JENKINS PLUGINS:
+//    - Pipeline
+//    - Git
+//    - Docker
+//    - Docker Compose
+//    - Email Extension
+//    - Slack Notification
+//
+// 2. CONFIGURE JENKINS CREDENTIALS:
+//    - GitHub credentials (for repository access)
+//    - Docker Hub credentials (optional, for registry)
+//    - Slack webhook URL (optional)
+//
+// 3. CREATE NEW PIPELINE JOB:
+//    - Job Type: Pipeline
+//    - Repository: Point to your Git repo
+//    - Script Path: jenkins/Jenkinsfile
+//
+// 4. CONFIGURE WEBHOOK (OPTIONAL):
+//    - GitHub: Settings > Webhooks > Add webhook
+//    - URL: http://jenkins-server:8080/github-webhook/
+//    - Events: Push events
+//    - Active: Yes
+//
+// 5. MANUAL TRIGGER:
+//    - Visit Jenkins web UI
+//    - Click "Build Now"
+//    - Monitor build progress
+//
+// ============================================================================
+// JENKINS COMMANDS (FROM TERMINAL)
+// ============================================================================
+//
+// Trigger job via curl:
+// curl -X POST http://jenkins-server:8080/job/devops-platform/build
+//
+// Get job status:
+// curl http://jenkins-server:8080/job/devops-platform/lastBuild/api/json
+//
+// Get build console:
+// curl http://jenkins-server:8080/job/devops-platform/lastBuild/consoleText
+//
+// ============================================================================

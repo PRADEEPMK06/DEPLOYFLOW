@@ -1,0 +1,193 @@
+---
+# ============================================================================
+# ANSIBLE MAIN PLAYBOOK
+# ============================================================================
+# Entry point for Ansible configuration management
+#
+# What is a playbook?
+# - YAML file defining plays
+# - Play: Set of tasks executed on specific hosts
+# - Task: Single action (install, copy, restart, etc.)
+# - Handler: Task triggered by other tasks
+#
+# Playbook structure:
+# - List of plays
+# - Each play has: name, hosts, tasks, handlers, variables
+#
+# ============================================================================
+
+---
+
+# ============================================================================
+# PLAY 1: COMMON CONFIGURATION
+# ============================================================================
+# Configure all hosts with common settings
+
+- name: Common Configuration and Updates
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  # Variables for this play
+  vars:
+    system_packages:
+      - curl
+      - wget
+      - git
+      - vim
+      - htop
+      - net-tools
+      - unzip
+      - build-essential
+      - python3-pip
+
+  tasks:
+
+    # Update package manager
+    - name: Update package manager cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    # Upgrade all packages
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+      when: auto_update_enabled | default(false)
+
+    # Install common packages
+    - name: Install common packages
+      apt:
+        name: "{{ system_packages }}"
+        state: present
+
+    # Set timezone
+    - name: Set timezone
+      timezone:
+        name: "{{ timezone | default('UTC') }}"
+
+    # Create devops-platform directory
+    - name: Create devops-platform directory
+      file:
+        path: /opt/devops-platform
+        state: directory
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+
+# ============================================================================
+# PLAY 2: DOCKER INSTALLATION AND CONFIGURATION
+# ============================================================================
+
+- name: Install and Configure Docker
+  hosts: docker_hosts
+  become: yes
+
+  roles:
+    - docker
+
+# ============================================================================
+# PLAY 3: NGINX INSTALLATION AND CONFIGURATION
+# ============================================================================
+
+- name: Install and Configure Nginx
+  hosts: nginx_hosts
+  become: yes
+
+  roles:
+    - nginx
+
+# ============================================================================
+# PLAY 4: APPLICATION DEPLOYMENT
+# ============================================================================
+
+- name: Deploy Applications with Docker Compose
+  hosts: devops_platform
+  become: yes
+  become_user: ubuntu
+
+  roles:
+    - deploy
+
+# ============================================================================
+# PLAY 5: JENKINS SETUP
+# ============================================================================
+
+- name: Install and Configure Jenkins
+  hosts: jenkins_hosts
+  become: yes
+
+  tasks:
+
+    # Create Jenkins home directory
+    - name: Create Jenkins home directory
+      file:
+        path: /var/lib/jenkins
+        state: directory
+        owner: jenkins
+        group: jenkins
+        mode: '0755'
+
+    # Note: Jenkins installation handled via Docker in docker-compose.yml
+    # This play can add additional Jenkins configuration if needed
+
+# ============================================================================
+# PLAY 6: VERIFICATION AND HEALTH CHECKS
+# ============================================================================
+
+- name: Verify Services
+  hosts: all
+  gather_facts: no
+
+  tasks:
+
+    # Check Docker status
+    - name: Check Docker service status
+      systemd:
+        name: docker
+        state: started
+      when: "'docker_hosts' in group_names"
+
+    # Check Nginx status
+    - name: Check Nginx service status
+      systemd:
+        name: nginx
+        state: started
+      when: "'nginx_hosts' in group_names"
+
+    # Verify Docker containers
+    - name: List running Docker containers
+      command: docker ps
+      register: docker_ps_output
+      changed_when: false
+      when: "'docker_hosts' in group_names"
+
+    - name: Display Docker containers
+      debug:
+        var: docker_ps_output.stdout_lines
+      when: "'docker_hosts' in group_names"
+
+# ============================================================================
+# PLAYBOOK EXECUTION
+# ============================================================================
+#
+# Run the entire playbook:
+# ansible-playbook -i inventory.ini playbook.yml
+#
+# Run specific play only:
+# ansible-playbook -i inventory.ini playbook.yml --tags "docker"
+#
+# Run with verbose output:
+# ansible-playbook -i inventory.ini playbook.yml -v
+# ansible-playbook -i inventory.ini playbook.yml -vvv (more verbose)
+#
+# Run specific tags:
+# ansible-playbook -i inventory.ini playbook.yml -t "install"
+#
+# Dry run (check mode):
+# ansible-playbook -i inventory.ini playbook.yml --check
+#
+# Run from specific task:
+# ansible-playbook -i inventory.ini playbook.yml --start-at-task "Task name"
+#
+# ============================================================================

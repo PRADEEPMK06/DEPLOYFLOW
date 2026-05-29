@@ -1,0 +1,212 @@
+---
+# ============================================================================
+# ANSIBLE DEPLOY ROLE - TASKS
+# ============================================================================
+# Tasks to deploy applications using Docker Compose
+
+---
+
+- name: Deploy Applications with Docker Compose
+
+  block:
+
+    # ====================================================================
+    # COPY PROJECT FILES TO SERVER
+    # ====================================================================
+
+    - name: Create deployment directory
+      file:
+        path: /opt/devops-platform
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copy docker-compose.yml to server
+      copy:
+        src: ../../../docker-compose.yml
+        dest: /opt/devops-platform/docker-compose.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    # ====================================================================
+    # COPY APPLICATION FILES
+    # ====================================================================
+
+    - name: Copy application directories
+      copy:
+        src: "../../../apps/"
+        dest: /opt/devops-platform/apps/
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copy Nginx configuration
+      copy:
+        src: ../../../nginx/
+        dest: /opt/devops-platform/nginx/
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    # ====================================================================
+    # BUILD DOCKER IMAGES
+    # ====================================================================
+
+    - name: Build Docker images with Docker Compose
+      shell: |
+        cd /opt/devops-platform
+        docker-compose build
+      register: docker_build
+      changed_when: "'Built' in docker_build.stdout or 'building' in docker_build.stdout"
+
+    - name: Display build output
+      debug:
+        var: docker_build.stdout_lines
+
+    # ====================================================================
+    # START SERVICES WITH DOCKER COMPOSE
+    # ====================================================================
+
+    - name: Start services with Docker Compose
+      shell: |
+        cd /opt/devops-platform
+        docker-compose up -d
+      register: docker_compose_up
+
+    - name: Display Docker Compose output
+      debug:
+        var: docker_compose_up.stdout_lines
+
+    # ====================================================================
+    # WAIT FOR SERVICES TO START
+    # ====================================================================
+
+    - name: Wait for services to become healthy
+      shell: |
+        cd /opt/devops-platform
+        docker-compose ps
+      register: docker_ps
+      retries: 10
+      delay: 5
+      until: "'Up' in docker_ps.stdout"
+      changed_when: false
+
+    - name: Display running containers
+      debug:
+        var: docker_ps.stdout_lines
+
+    # ====================================================================
+    # VERIFY APPLICATION HEALTH
+    # ====================================================================
+
+    - name: Test Nginx reverse proxy
+      uri:
+        url: "http://localhost/"
+        method: GET
+      register: nginx_test
+      retries: 5
+      delay: 3
+
+    - name: Test Portfolio application
+      uri:
+        url: "http://localhost/portfolio"
+        method: GET
+      register: portfolio_test
+      retries: 5
+      delay: 3
+
+    - name: Test Weather application
+      uri:
+        url: "http://localhost/weather"
+        method: GET
+      register: weather_test
+      retries: 5
+      delay: 3
+
+    - name: Test Stopwatch application
+      uri:
+        url: "http://localhost/stopwatch"
+        method: GET
+      register: stopwatch_test
+      retries: 5
+      delay: 3
+
+    - name: Test Tic Tac Toe game
+      uri:
+        url: "http://localhost/game"
+        method: GET
+      register: game_test
+      retries: 5
+      delay: 3
+
+    - name: Test Jenkins
+      uri:
+        url: "http://localhost:8080"
+        method: GET
+        follow_redirects: yes
+      register: jenkins_test
+      retries: 5
+      delay: 5
+
+    # ====================================================================
+    # DISPLAY RESULTS
+    # ====================================================================
+
+    - name: Display test results
+      debug:
+        msg: |
+          ✓ Nginx: HTTP {{ nginx_test.status }}
+          ✓ Portfolio: HTTP {{ portfolio_test.status }}
+          ✓ Weather: HTTP {{ weather_test.status }}
+          ✓ Stopwatch: HTTP {{ stopwatch_test.status }}
+          ✓ Game: HTTP {{ game_test.status }}
+          ✓ Jenkins: HTTP {{ jenkins_test.status }}
+
+    # ====================================================================
+    # CREATE DEPLOYMENT REPORT
+    # ====================================================================
+
+    - name: Create deployment report
+      copy:
+        content: |
+          Deployment Summary
+          ==================
+          Date: {{ ansible_date_time.iso8601 }}
+          Server: {{ inventory_hostname }}
+          
+          Services Deployed:
+          - Nginx Reverse Proxy: Running
+          - Portfolio Application: Running
+          - Weather Application: Running
+          - Stopwatch Application: Running
+          - Tic Tac Toe Game: Running
+          - Jenkins CI/CD: Running
+          
+          Access Points:
+          - http://localhost/portfolio
+          - http://localhost/weather
+          - http://localhost/stopwatch
+          - http://localhost/game
+          - http://localhost:8080 (Jenkins)
+          
+          Deployment Status: SUCCESS
+        dest: /opt/devops-platform/DEPLOYMENT_REPORT.txt
+
+    - name: Display deployment report
+      command: cat /opt/devops-platform/DEPLOYMENT_REPORT.txt
+      register: deployment_report
+      changed_when: false
+
+    - name: Show deployment report
+      debug:
+        var: deployment_report.stdout_lines
+
+  rescue:
+    - name: Deployment failed
+      debug:
+        msg: "Deployment failed. Check error messages above."
+      failed_when: true
+
+# ============================================================================

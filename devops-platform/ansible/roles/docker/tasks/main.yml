@@ -1,0 +1,202 @@
+---
+# ============================================================================
+# ANSIBLE DOCKER ROLE - TASKS
+# ============================================================================
+# Tasks to install Docker and Docker Compose
+#
+# What is a role?
+# - Reusable collection of tasks, handlers, templates, variables
+# - Organized directory structure
+# - Improves code reusability and maintainability
+#
+# Role structure:
+# roles/docker/
+# ├── tasks/
+# │   └── main.yml (this file)
+# ├── handlers/
+# │   └── main.yml
+# └── defaults/
+#     └── main.yml
+#
+# ============================================================================
+
+---
+
+- name: Install Docker and Docker Compose
+
+  block:
+
+    # ====================================================================
+    # INSTALL PREREQUISITES
+    # ====================================================================
+
+    - name: Install Docker prerequisites
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+
+    # ====================================================================
+    # ADD DOCKER GPG KEY
+    # ====================================================================
+    # GPG key verifies package authenticity
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    # ====================================================================
+    # ADD DOCKER REPOSITORY
+    # ====================================================================
+    # Add official Docker repository to APT sources
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    # ====================================================================
+    # INSTALL DOCKER
+    # ====================================================================
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    # ====================================================================
+    # START AND ENABLE DOCKER SERVICE
+    # ====================================================================
+
+    - name: Start Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    # ====================================================================
+    # ADD USER TO DOCKER GROUP
+    # ====================================================================
+    # Allows user to run docker commands without sudo
+
+    - name: Add user to docker group
+      user:
+        name: "{{ docker_users }}"
+        groups: docker
+        append: yes
+
+    # ====================================================================
+    # INSTALL DOCKER COMPOSE (Standalone)
+    # ====================================================================
+    # Docker Compose standalone binary (in addition to plugin)
+
+    - name: Download Docker Compose
+      get_url:
+        url: "https://github.com/docker/compose/releases/latest/download/docker-compose-Linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    # ====================================================================
+    # VERIFY DOCKER INSTALLATION
+    # ====================================================================
+
+    - name: Verify Docker installation
+      command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Display Docker version
+      debug:
+        msg: "{{ docker_version.stdout }}"
+
+    # ====================================================================
+    # VERIFY DOCKER COMPOSE INSTALLATION
+    # ====================================================================
+
+    - name: Verify Docker Compose installation
+      command: docker-compose --version
+      register: docker_compose_version
+      changed_when: false
+
+    - name: Display Docker Compose version
+      debug:
+        msg: "{{ docker_compose_version.stdout }}"
+
+    # ====================================================================
+    # DOCKER DAEMON CONFIGURATION
+    # ====================================================================
+    # Configure Docker daemon for production readiness
+
+    - name: Create Docker daemon configuration directory
+      file:
+        path: /etc/docker
+        state: directory
+
+    - name: Configure Docker daemon
+      copy:
+        content: |
+          {
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "10m",
+              "max-file": "3"
+            },
+            "storage-driver": "overlay2",
+            "storage-opts": [
+              "overlay2.override_kernel_check=true"
+            ]
+          }
+        dest: /etc/docker/daemon.json
+
+    # ====================================================================
+    # RESTART DOCKER WITH NEW CONFIGURATION
+    # ====================================================================
+
+    - name: Restart Docker service
+      systemd:
+        name: docker
+        state: restarted
+
+    # ====================================================================
+    # VERIFY DOCKER IS WORKING
+    # ====================================================================
+
+    - name: Run Docker hello-world test
+      command: docker run --rm hello-world
+      register: docker_test
+      changed_when: false
+      retries: 3
+      delay: 10
+
+    - name: Display Docker test result
+      debug:
+        msg: "Docker successfully installed and working"
+
+  # Error handling
+  rescue:
+    - name: Docker installation failed
+      debug:
+        msg: "Failed to install Docker. Check error messages above."
+      failed_when: true
+
+# ============================================================================
+# ROLE DEFAULTS
+# ============================================================================
+# These values can be overridden in playbook or inventory
+#
+# Variables used by this role:
+# - docker_users: User to add to docker group
+#
+# ============================================================================

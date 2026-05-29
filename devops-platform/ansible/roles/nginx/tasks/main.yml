@@ -1,0 +1,101 @@
+---
+# ============================================================================
+# ANSIBLE NGINX ROLE - TASKS
+# ============================================================================
+# Tasks to install Nginx reverse proxy
+
+---
+
+- name: Install Nginx
+
+  block:
+
+    # ====================================================================
+    # INSTALL NGINX
+    # ====================================================================
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    # ====================================================================
+    # CREATE NGINX CONFIGURATION DIRECTORY
+    # ====================================================================
+
+    - name: Create Nginx configuration directory
+      file:
+        path: /etc/nginx/conf.d
+        state: directory
+        mode: '0755'
+
+    # ====================================================================
+    # COPY REVERSE PROXY CONFIGURATION
+    # ====================================================================
+    # Copy our custom reverse proxy config to Nginx
+
+    - name: Copy Nginx reverse proxy configuration
+      copy:
+        src: ../../../nginx/default.conf
+        dest: /etc/nginx/conf.d/default.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart nginx
+
+    # ====================================================================
+    # REMOVE DEFAULT CONFIGURATION
+    # ====================================================================
+
+    - name: Remove default Nginx configuration
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: restart nginx
+
+    # ====================================================================
+    # TEST NGINX CONFIGURATION
+    # ====================================================================
+
+    - name: Test Nginx configuration
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - name: Display Nginx test result
+      debug:
+        msg: "{{ nginx_test.stderr_lines }}"
+
+    # ====================================================================
+    # START AND ENABLE NGINX SERVICE
+    # ====================================================================
+
+    - name: Start Nginx service
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+
+    # ====================================================================
+    # VERIFY NGINX IS RUNNING
+    # ====================================================================
+
+    - name: Verify Nginx is running
+      command: curl -f http://localhost/
+      register: nginx_check
+      retries: 3
+      delay: 5
+      changed_when: false
+
+    - name: Display Nginx verification
+      debug:
+        msg: "Nginx is running and responding to requests"
+
+  rescue:
+    - name: Nginx installation failed
+      debug:
+        msg: "Failed to install Nginx. Check error messages above."
+      failed_when: true
+
+# ============================================================================

@@ -1,0 +1,401 @@
+# ============================================================================
+# DOCKER COMPOSE CONFIGURATION
+# ============================================================================
+# This file orchestrates all 4 applications + Nginx reverse proxy + Jenkins
+#
+# What is Docker Compose?
+# - YAML file defining multi-container applications
+# - Replaces need for running individual docker run commands
+# - Defines services, networks, volumes, environment variables
+# - One command to start all services: docker-compose up
+#
+# File location: Root of devops-platform directory
+# Run with: docker-compose up -d
+# Stop with: docker-compose down
+#
+# ============================================================================
+
+version: '3.9'
+
+# ============================================================================
+# SERVICES DEFINITION
+# ============================================================================
+# Each service is a container
+
+services:
+
+  # ========================================================================
+  # 1. NGINX REVERSE PROXY
+  # ========================================================================
+  # Routes traffic to different applications based on URL path
+  # Acts as load balancer and reverse proxy
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx-reverse-proxy
+    
+    # Ports: host:container
+    # 80: External port (users access this)
+    # 80: Internal Nginx port
+    ports:
+      - "80:80"
+
+    # Volume: Mount Nginx config into container
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+    # Restart policy: Always restart if stopped
+    restart: always
+
+    # Network: Connect to devops network (for service-to-service communication)
+    networks:
+      - devops-network
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Container name for easy reference
+    container_name: nginx-reverse-proxy
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Dependencies: Wait for these services to start first
+    depends_on:
+      - portfolio
+      - weather-app
+      - stopwatch
+      - tic-tac-toe
+      - jenkins
+
+  # ========================================================================
+  # 2. PORTFOLIO APPLICATION
+  # ========================================================================
+  # Personal portfolio website
+  # Route: http://host/portfolio
+
+  portfolio:
+    image: portfolio:latest
+    container_name: portfolio-app
+    build:
+      context: ./apps/portfolio
+      dockerfile: Dockerfile
+
+    # Internal port (Nginx proxies to this)
+    expose:
+      - "80"
+
+    restart: always
+    networks:
+      - devops-network
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    # Environment variables (if needed)
+    environment:
+      APP_NAME: "Portfolio"
+      APP_PORT: "80"
+
+    # Resource limits (prevent container from consuming all resources)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================================
+  # 3. WEATHER APPLICATION
+  # ========================================================================
+  # Weather app with API integration
+  # Route: http://host/weather
+
+  weather-app:
+    image: weather-app:latest
+    container_name: weather-app
+    build:
+      context: ./apps/weather-app
+      dockerfile: Dockerfile
+
+    expose:
+      - "80"
+
+    restart: always
+    networks:
+      - devops-network
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    environment:
+      APP_NAME: "Weather"
+      APP_PORT: "80"
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================================
+  # 4. STOPWATCH APPLICATION
+  # ========================================================================
+  # Timer and stopwatch functionality
+  # Route: http://host/stopwatch
+
+  stopwatch:
+    image: stopwatch:latest
+    container_name: stopwatch-app
+    build:
+      context: ./apps/stopwatch
+      dockerfile: Dockerfile
+
+    expose:
+      - "80"
+
+    restart: always
+    networks:
+      - devops-network
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    environment:
+      APP_NAME: "Stopwatch"
+      APP_PORT: "80"
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================================
+  # 5. TIC TAC TOE GAME
+  # ========================================================================
+  # Interactive game
+  # Route: http://host/game
+
+  tic-tac-toe:
+    image: tic-tac-toe:latest
+    container_name: tic-tac-toe-app
+    build:
+      context: ./apps/tic-tac-toe
+      dockerfile: Dockerfile
+
+    expose:
+      - "80"
+
+    restart: always
+    networks:
+      - devops-network
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    environment:
+      APP_NAME: "Tic Tac Toe"
+      APP_PORT: "80"
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================================
+  # 6. JENKINS CI/CD PIPELINE
+  # ========================================================================
+  # Automation server for building and deploying
+  # Route: http://host:8080 or http://host/jenkins (via Nginx)
+
+  jenkins:
+    image: jenkins/jenkins:latest
+    container_name: jenkins-server
+
+    # Jenkins internal port (UI)
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+
+    # Volumes for persistent data
+    volumes:
+      - jenkins-data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
+
+    restart: always
+    networks:
+      - devops-network
+
+    # Environment variables for Jenkins
+    environment:
+      JAVA_OPTS: "-Xmx256m -Xms256m"
+      JENKINS_OPTS: "--httpPort=8080"
+      TZ: "UTC"
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+    # Wait for Jenkins to fully start
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+# Persistent storage for services
+
+volumes:
+  jenkins-data:
+    driver: local
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+# Custom network for service-to-service communication
+
+networks:
+  devops-network:
+    driver: bridge
+
+# ============================================================================
+# DOCKER COMPOSE COMMANDS
+# ============================================================================
+#
+# Build images (without starting):
+# docker-compose build
+#
+# Start all services:
+# docker-compose up -d
+#
+# View running services:
+# docker-compose ps
+#
+# View logs for all services:
+# docker-compose logs -f
+#
+# View logs for specific service:
+# docker-compose logs -f nginx
+# docker-compose logs -f jenkins
+#
+# Execute command in running container:
+# docker-compose exec nginx bash
+# docker-compose exec jenkins bash
+#
+# Stop all services:
+# docker-compose stop
+#
+# Restart all services:
+# docker-compose restart
+#
+# Remove all services (keeps volumes):
+# docker-compose down
+#
+# Remove all services and volumes:
+# docker-compose down -v
+#
+# Rebuild specific service:
+# docker-compose up -d --build nginx
+#
+# ============================================================================
+# ACCESS POINTS AFTER STARTING
+# ============================================================================
+#
+# Portfolio:        http://localhost/portfolio
+# Weather App:      http://localhost/weather
+# Stopwatch:        http://localhost/stopwatch
+# Tic Tac Toe:      http://localhost/game
+# Jenkins:          http://localhost:8080
+# Nginx:            http://localhost/
+#
+# ============================================================================
+# RESOURCE USAGE
+# ============================================================================
+#
+# Total estimated resource usage:
+# CPU: ~2 cores (shared among services)
+# Memory: ~1.2 GB
+#
+# Per application:
+# - Each app: 0.5 CPU limit, 256 MB memory
+# - Jenkins: 1 CPU limit, 512 MB memory
+# - Nginx: Unlimited (but efficient)
+#
+# Safe for: t2.micro (1 GB RAM, 1 vCPU) with careful monitoring
+#
+# ============================================================================

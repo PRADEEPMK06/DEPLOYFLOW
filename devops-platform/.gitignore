@@ -1,0 +1,140 @@
+# Terraform files
+*.tfstate
+*.tfstate.*
+*.tfvars
+terraform.tfvars.json
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# SSH Keys
+*.pem
+*.pub
+!example.pub
+
+# Ansible
+*.retry
+ansible/devops-platform-key.pem
+
+# Docker
+.docker/
+.dockerignore
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# System
+.DS_Store
+Thumbs.db
+*.log
+logs/
+*.pid
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+dist/
+build/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# OS files
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# CI/CD
+.travis.yml
+circle.yml
+
+# Credentials and secrets
+.env
+.env.*.local
+secrets/
+credentials/
+*.key
+*.secret
+.aws/
+
+# Local development
+local/
+tmp/
+temp/
+
+# Terraform debug
+*.tfstate.d/
+crash.log
+
+# Backups
+*.bak
+*.backup
+*~
+.backup/
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+
+# IDE specific
+.vscode/settings.json
+.idea/workspace.xml
+

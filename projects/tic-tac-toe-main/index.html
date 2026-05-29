@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tic Tac Toe</title>
+  <style>
+   body {
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(to right, rgba(106, 17, 203, 0.6), rgba(37, 117, 252, 0.6)),
+              url('ttt.jpeg') no-repeat center center fixed;
+  background-size: cover;
+  font-family: 'Segoe UI', sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  color: #fff;
+}
+
+
+    h1 {
+      margin-top: 40px;
+      font-size: 3rem;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .menu {
+      margin-top: 20px;
+    }
+
+    button {
+      margin: 10px;
+      padding: 12px 25px;
+      font-size: 1.2rem;
+      background: #ff6b6b;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s ease, transform 0.2s ease;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    button:hover {
+      background: #ff4c4c;
+      transform: translateY(-2px);
+    }
+
+    #playerForm {
+      margin-top: 20px;
+      display: flex;
+      gap: 10px;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    #playerForm input {
+      padding: 10px;
+      font-size: 1rem;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      width: 250px;
+      transition: border-color 0.3s ease;
+    }
+
+    #playerForm input:focus {
+      border-color: #ff6b6b;
+      outline: none;
+    }
+
+    #playerForm.hidden {
+      display: none;
+    }
+
+    #board {
+      display: grid;
+      grid-template-columns: repeat(3, 100px);
+      grid-template-rows: repeat(3, 100px);
+      gap: 10px;
+      margin-top: 30px;
+    }
+
+    .cell {
+      background-color: #ffffff;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3rem;
+      font-weight: bold;
+      color: #333;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      transition: background-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .cell:hover {
+      background-color: #f0f8ff;
+      transform: scale(1.05);
+    }
+
+    .highlight {
+      background-color: #ffe066 !important;
+    }
+
+    #message {
+      margin-top: 20px;
+      font-size: 1.5rem;
+      color: #fff;
+      text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Tic Tac Toe</h1>
+
+  <div class="menu">
+    <button onclick="startGame(1)">1 Player</button>
+    <button onclick="showForm()">2 Player</button>
+  </div>
+
+  <form id="playerForm" class="hidden" onsubmit="submitNames(event)">
+    <input type="text" id="player1" placeholder="Enter Player X Name" required>
+    <input type="text" id="player2" placeholder="Enter Player O Name" required>
+    <button type="submit">Start Game</button>
+  </form>
+
+  <div id="message"></div>
+  <div id="board"></div>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const messageEl = document.getElementById('message');
+    const formEl = document.getElementById('playerForm');
+
+    let board, currentPlayer, mode, isGameOver;
+    let player1Name = "Player 1";
+    let player2Name = "Player 2";
+
+    function showForm() {
+      formEl.classList.remove('hidden');
+    }
+
+    function submitNames(e) {
+      e.preventDefault();
+      player1Name = document.getElementById('player1').value || "Player 1";
+      player2Name = document.getElementById('player2').value || "Player 2";
+      formEl.classList.add('hidden');
+      startGame(2);
+    }
+
+    function startGame(selectedMode) {
+      mode = selectedMode;
+      board = Array(9).fill('');
+      currentPlayer = 'X';
+      isGameOver = false;
+      render();
+      messageEl.textContent = mode === 1
+        ? `Player ${currentPlayer}'s turn`
+        : `${currentPlayer === 'X' ? player1Name : player2Name}'s turn`;
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      board.forEach((val, idx) => {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.textContent = val;
+        cell.addEventListener('click', () => makeMove(idx));
+        boardEl.appendChild(cell);
+      });
+    }
+
+    function makeMove(index) {
+      if (isGameOver || board[index]) return;
+
+      board[index] = currentPlayer;
+      render();
+
+      const winnerInfo = checkWinner();
+      if (winnerInfo) {
+        if (winnerInfo === 'Draw') {
+          messageEl.textContent = "It's a draw!";
+        } else {
+          const winnerName = (winnerInfo.winner === 'X') ? player1Name : player2Name;
+          messageEl.textContent = `${winnerName} wins!`;
+          highlightWin(winnerInfo.winPattern);
+        }
+        isGameOver = true;
+        return;
+      }
+
+      if (mode === 1 && currentPlayer === 'X') {
+        currentPlayer = 'O';
+        messageEl.textContent = `AI is thinking...`;
+        setTimeout(() => {
+          let best = bestMove();
+          board[best] = 'O';
+          render();
+          const winnerInfo = checkWinner();
+          if (winnerInfo) {
+            if (winnerInfo === 'Draw') {
+              messageEl.textContent = "It's a draw!";
+            } else {
+              messageEl.textContent = `AI wins!`;
+              highlightWin(winnerInfo.winPattern);
+            }
+            isGameOver = true;
+            return;
+          }
+          currentPlayer = 'X';
+          messageEl.textContent = `Your turn`;
+        }, 500);
+      } else {
+        currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+        messageEl.textContent = mode === 2
+          ? `${currentPlayer === 'X' ? player1Name : player2Name}'s turn`
+          : `Player ${currentPlayer}'s turn`;
+      }
+    }
+
+    function checkWinner() {
+      const winPatterns = [
+        [0,1,2], [3,4,5], [6,7,8],
+        [0,3,6], [1,4,7], [2,5,8],
+        [0,4,8], [2,4,6]
+      ];
+      for (let pattern of winPatterns) {
+        const [a, b, c] = pattern;
+        if (board[a] && board[a] === board[b] && board[b] === board[c]) {
+          return { winner: board[a], winPattern: pattern };
+        }
+      }
+      if (board.every(cell => cell)) return 'Draw';
+      return null;
+    }
+
+    function highlightWin(pattern) {
+      const cells = document.querySelectorAll('.cell');
+      pattern.forEach(index => {
+        cells[index].classList.add('highlight');
+      });
+    }
+
+    function bestMove() {
+      let bestScore = -Infinity;
+      let move;
+      for (let i = 0; i < 9; i++) {
+        if (board[i] === '') {
+          board[i] = 'O';
+          let score = minimax(board, 0, false);
+          board[i] = '';
+          if (score > bestScore) {
+            bestScore = score;
+            move = i;
+          }
+        }
+      }
+      return move;
+    }
+
+    function minimax(newBoard, depth, isMaximizing) {
+      const result = checkWinner();
+      if (result) {
+        if (result === 'Draw') return 0;
+        return result.winner === 'O' ? 10 - depth : depth - 10;
+      }
+      if (isMaximizing) {
+        let bestScore = -Infinity;
+        for (let i = 0; i < 9; i++) {
+          if (newBoard[i] === '') {
+            newBoard[i] = 'O';
+            let score = minimax(newBoard, depth + 1, false);
+            newBoard[i] = '';
+            bestScore = Math.max(score, bestScore);
+          }
+        }
+        return bestScore;
+      } else {
+        let bestScore = Infinity;
+        for (let i = 0; i < 9; i++) {
+          if (newBoard[i] === '') {
+            newBoard[i] = 'X';
+            let score = minimax(newBoard, depth + 1, true);
+            newBoard[i] = '';
+            bestScore = Math.min(score, bestScore);
+          }
+        }
+        return bestScore;
+      }
+    }
+  </script>
+
+</body>
+</html>
+
