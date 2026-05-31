@@ -420,7 +420,7 @@ data "aws_ami" "ubuntu" {
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-noble-${var.ubuntu_version}-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-*-${var.ubuntu_version}-amd64-server-*"]
   }
 
   filter {
@@ -428,7 +428,7 @@ data "aws_ami" "ubuntu" {
     values = ["hvm"]  # Hardware Virtual Machine
   }
 
-  # This finds the most recent Ubuntu 24.04 AMI
+  # This finds the most recent Ubuntu AMI for the specified version
   # Ubuntu publishes new AMIs regularly with security patches
 }
 

@@ -54,15 +54,6 @@ provider "aws" {
   #    - AWS_ACCESS_KEY_ID
   #    - AWS_SECRET_ACCESS_KEY
   # 3. Or use IAM roles on EC2
-
-  default_tags {
-    tags = {
-      Environment = var.environment
-      Project     = "DevOps-Platform"
-      ManagedBy   = "Terraform"
-      CreatedAt   = timestamp()
-    }
-  }
 }
 
 # ============================================================================

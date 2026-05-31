@@ -1,0 +1,202 @@
+pipeline {
+    agent any
+    
+    environment {
+        EC2_IP = '54.221.113.159'
+        EC2_USER = 'ubuntu'
+        SSH_KEY_PATH = 'c:\\Users\\PradeepMK\\Desktop\\micro\\devops-platform\\terraform\\devops-platform-key.pem'
+    }
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 45, unit: 'MINUTES')
+        timestamps()
+    }
+    
+    stages {
+        stage('🚀 START DEPLOYMENT') {
+            steps {
+                script {
+                    echo '════════════════════════════════════════'
+                    echo 'AUTOMATED DEPLOYMENT PIPELINE START'
+                    echo 'All 4 Projects - GitHub to EC2'
+                    echo '════════════════════════════════════════'
+                }
+            }
+        }
+        
+        stage('📝 ADD DOCKERFILES') {
+            steps {
+                script {
+                    powershell '''
+                        $deployPath = Get-Content "C:\\Temp\\deploy-path.txt" -Raw | ForEach-Object { $_.Trim() }
+                        Set-Location $deployPath
+                        
+                        Write-Host "Creating Dockerfiles..."
+                        
+                        $dockerfile = @"
+FROM nginx:alpine
+RUN apk add --no-cache curl
+COPY . /usr/share/nginx/html/
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+"@
+                        
+                        foreach ($proj in @("portfolio", "weather", "tictactoe", "stopwatch")) {
+                            $dockerfile | Out-File -FilePath "$proj\\Dockerfile" -Force -Encoding UTF8
+                        }
+                        
+                        Write-Host "✅ All Dockerfiles created"
+                    '''
+                }
+            }
+        }
+        
+        stage('🐳 BUILD DOCKER IMAGES') {
+            steps {
+                script {
+                    powershell '''
+                        $deployPath = Get-Content "C:\\Temp\\deploy-path.txt" -Raw | ForEach-Object { $_.Trim() }
+                        Set-Location $deployPath
+                        
+                        Write-Host "Building Docker images..."
+                        
+                        docker build -t portfolio:latest ./portfolio/ 2>&1 | Select-Object -Last 3
+                        docker build -t weather:latest ./weather/ 2>&1 | Select-Object -Last 3
+                        docker build -t tictactoe:latest ./tictactoe/ 2>&1 | Select-Object -Last 3
+                        docker build -t stopwatch:latest ./stopwatch/ 2>&1 | Select-Object -Last 3
+                        
+                        Write-Host "✅ All Docker images built"
+                    '''
+                }
+            }
+        }
+        
+        stage('💾 SAVE DOCKER IMAGES') {
+            steps {
+                script {
+                    powershell '''
+                        Write-Host "Saving Docker images to files..."
+                        $saveDir = "C:\\Temp\\docker-images"
+                        if (Test-Path $saveDir) { Remove-Item -Recurse -Force $saveDir }
+                        New-Item -ItemType Directory -Path $saveDir -Force | Out-Null
+                        
+                        Write-Host "1. Saving portfolio..."
+                        docker save portfolio:latest -o "$saveDir\\portfolio.tar"
+                        Write-Host "✅ portfolio saved ($(((Get-Item "$saveDir\\portfolio.tar").length/1MB).ToString("F2")) MB)"
+                        
+                        Write-Host "2. Saving weather..."
+                        docker save weather:latest -o "$saveDir\\weather.tar"
+                        Write-Host "✅ weather saved ($(((Get-Item "$saveDir\\weather.tar").length/1MB).ToString("F2")) MB)"
+                        
+                        Write-Host "3. Saving tictactoe..."
+                        docker save tictactoe:latest -o "$saveDir\\tictactoe.tar"
+                        Write-Host "✅ tictactoe saved ($(((Get-Item "$saveDir\\tictactoe.tar").length/1MB).ToString("F2")) MB)"
+                        
+                        Write-Host "4. Saving stopwatch..."
+                        docker save stopwatch:latest -o "$saveDir\\stopwatch.tar"
+                        Write-Host "✅ stopwatch saved ($(((Get-Item "$saveDir\\stopwatch.tar").length/1MB).ToString("F2")) MB)"
+                        
+                        $saveDir | Out-File -FilePath "C:\\Temp\\images-path.txt" -Force
+                    '''
+                }
+            }
+        }
+        
+        stage('🚀 DEPLOY TO EC2') {
+            steps {
+                script {
+                    powershell '''
+                        $keyPath = $env:SSH_KEY_PATH
+                        $ec2Host = "ubuntu@54.221.113.159"
+                        $saveDir = Get-Content "C:\\Temp\\images-path.txt" -Raw | ForEach-Object { $_.Trim() }
+
+                        Write-Host "Deploying to EC2 using persistent key path..."
+
+                        # Stop old containers
+                        Write-Host "Stopping old containers..."
+                        ssh -i $keyPath -o StrictHostKeyChecking=no $ec2Host "sudo docker stop portfolio weather tictactoe stopwatch 2>/dev/null; sudo docker rm portfolio weather tictactoe stopwatch 2>/dev/null; exit 0"
+
+                        Write-Host "Transferring and loading images..."
+
+                        foreach ($proj in @("portfolio", "weather", "tictactoe", "stopwatch")) {
+                            Write-Host "Transferring $proj..."
+                            scp -i $keyPath -o StrictHostKeyChecking=no "$saveDir\\$proj.tar" "${ec2Host}:/tmp/$proj.tar"
+
+                            Write-Host "Loading $proj on EC2..."
+                            ssh -i $keyPath -o StrictHostKeyChecking=no $ec2Host "sudo docker load -i /tmp/$proj.tar && rm /tmp/$proj.tar"
+                            Write-Host "✅ $proj loaded"
+                        }
+
+                        Write-Host "Starting containers..."
+                        ssh -i $keyPath -o StrictHostKeyChecking=no $ec2Host @"
+                            sudo docker run -d --name portfolio -p 3001:80 portfolio:latest
+                            sudo docker run -d --name weather -p 3002:80 weather:latest
+                            sudo docker run -d --name tictactoe -p 3003:80 tictactoe:latest
+                            sudo docker run -d --name stopwatch -p 3004:80 stopwatch:latest
+                            echo "✅ All containers started"
+"@
+                    '''
+                }
+            }
+        }
+        
+        stage('🧪 VERIFY DEPLOYMENT') {
+            steps {
+                script {
+                    powershell '''
+                        $keyPath = $env:SSH_KEY_PATH
+
+                        Write-Host "Verifying deployment..."
+
+                        ssh -i $keyPath -o StrictHostKeyChecking=no ubuntu@54.221.113.159 @"
+                            echo ""
+                            echo "Testing applications..."
+                            curl -s http://localhost:3001/ | grep -o '<title>.*</title>'
+                            curl -s http://localhost:3002/ | grep -o '<title>.*</title>'
+                            curl -s http://localhost:3003/ | grep -o '<title>.*</title>'
+                            curl -s http://localhost:3004/ | grep -o '<title>.*</title>'
+                            
+                            echo ""
+                            echo "Container Status:"
+                            sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+                            echo "✅ All verified!"
+"@
+                    '''
+                }
+            }
+        }
+        
+        stage('📊 DEPLOYMENT SUMMARY') {
+            steps {
+                script {
+                    powershell '''
+                        Write-Host ""
+                        Write-Host "════════════════════════════════════════"
+                        Write-Host "✅ DEPLOYMENT SUCCESSFUL! ✅"
+                        Write-Host "════════════════════════════════════════"
+                        Write-Host ""
+                        Write-Host "🌐 Your Projects Are Live:"
+                        Write-Host "  📱 Portfolio:  http://54.221.113.159:3001"
+                        Write-Host "  ☀️  Weather:    http://54.221.113.159:3002"
+                        Write-Host "  🎮 Game:       http://54.221.113.159:3003"
+                        Write-Host "  ⏱️  Stopwatch:  http://54.221.113.159:3004"
+                        Write-Host ""
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "✅ ALL DEPLOYMENTS SUCCESSFUL!"
+        }
+        failure {
+            echo "❌ DEPLOYMENT FAILED!"
+        }
+    }
+}
